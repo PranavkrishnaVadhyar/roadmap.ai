@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 Status = Literal["not_started", "in_progress", "done"]
 Role = Literal["user", "assistant"]
@@ -135,7 +135,7 @@ class PublicRoadmapOut(RoadmapOut):
 
 class MaterialCandidate(BaseModel):
     title: str
-    url: HttpUrl
+    url: str = Field(pattern=r"^https?://")
     resource_type: Literal["article", "video", "course", "doc", "other"] = "other"
 
 

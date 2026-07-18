@@ -3,7 +3,7 @@ import json
 from typing import TypeVar
 
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.schemas import ChatResponse, GeneratedRoadmap, GeneratedTodo, MaterialCandidate, Message, RoadmapEdit
@@ -75,8 +75,8 @@ async def edit_roadmap(current: dict, query: str) -> RoadmapEdit:
 
 async def generate_todos(roadmap: dict) -> list[GeneratedTodo]:
     class TodoPayload(BaseModel):
-        todos: list[GeneratedTodo]
-    instructions = "Generate one to three practical learning actions for each roadmap node. Use only existing node IDs, respecting prerequisite edges."
+        todos: list[GeneratedTodo] = Field(min_length=1)
+    instructions = "Generate one to three practical learning actions for every roadmap node. Use only existing node IDs, respect prerequisite edges, cover every node at least once, and never return an empty todos list."
     return (await _structured(instructions, [{"role": "user", "content": json.dumps(roadmap)}], TodoPayload)).todos
 
 

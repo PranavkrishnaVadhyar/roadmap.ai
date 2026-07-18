@@ -2,7 +2,8 @@ from fastapi.testclient import TestClient
 
 from app import ai_service
 from app.main import app
-from app.schemas import ChatResponse, GeneratedEdge, GeneratedNode, GeneratedRoadmap, GeneratedTodo, Message, RoadmapEdit
+from app.schemas import (ChatResponse, GeneratedEdge, GeneratedNode, GeneratedRoadmap, GeneratedTodo,
+                         MaterialCandidate, Message, RoadmapEdit)
 
 
 def test_roadmap_todo_and_share_flow(monkeypatch):
@@ -12,15 +13,20 @@ def test_roadmap_todo_and_share_flow(monkeypatch):
             edges=[GeneratedEdge(source_temp_id="a", target_temp_id="b")])
 
     async def make_todos(roadmap):
-        return [GeneratedTodo(node_id=roadmap["nodes"][0]["id"], title="Read basics")]
+        return [GeneratedTodo(node_id=node["id"], title=f"Read {node['title']}") for node in roadmap["nodes"]]
+
+    async def find_materials(_, __):
+        return [MaterialCandidate(title="FastAPI tutorial", url="https://fastapi.tiangolo.com/tutorial/", resource_type="doc")]
 
     monkeypatch.setattr(ai_service, "generate_roadmap", make_roadmap)
     monkeypatch.setattr(ai_service, "generate_todos", make_todos)
+    monkeypatch.setattr(ai_service, "search_materials", find_materials)
     with TestClient(app) as client:
         created = client.post("/roadmaps", json={"chat_history": [{"role": "user", "content": "Learn Python"}]})
         assert created.status_code == 201
         roadmap = created.json(); roadmap_id = roadmap["id"]
         assert len(roadmap["nodes"]) == 2
+        assert roadmap["nodes"][0]["materials"][0]["url"] == "https://fastapi.tiangolo.com/tutorial/"
         assert client.patch(f"/roadmaps/{roadmap_id}/nodes/{roadmap['nodes'][0]['id']}", json={"status": "in_progress"}).status_code == 200
         assert client.post(f"/roadmaps/{roadmap_id}/todos/generate", json={}).status_code == 200
         manual = client.post(f"/roadmaps/{roadmap_id}/todos", json={"title": "Book time"})

@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict, deque
 
 from fastapi import HTTPException, status
@@ -6,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app import ai_service
-from app.models import Edge, Node, Roadmap, TodoItem
+from app.models import Edge, Material, Node, Roadmap, TodoItem
 from app.schemas import EdgeOut, GeneratedRoadmap, MaterialOut, NodeOut, PublicRoadmapOut, RoadmapOut, TodoOut
 
 
@@ -70,14 +71,43 @@ async def create_roadmap(session: AsyncSession, generated: GeneratedRoadmap) -> 
     return as_out(await get_roadmap(session, roadmap.id))
 
 
+async def attach_discovered_materials(session: AsyncSession, roadmap_id: str) -> RoadmapOut:
+    """Search resources concurrently and return the newly enriched roadmap.
+
+    A failed search for one node does not discard the generated roadmap or sources
+    found for other nodes; its materials list remains empty and can be retried later.
+    """
+    roadmap = await get_roadmap(session, roadmap_id)
+    limit = asyncio.Semaphore(3)
+
+    async def search(node: Node):
+        async with limit:
+            try:
+                return await ai_service.search_materials(node.title, roadmap.title)
+            except ai_service.AIServiceError:
+                return []
+
+    results = await asyncio.gather(*(search(node) for node in roadmap.nodes))
+    for node, materials in zip(roadmap.nodes, results, strict=True):
+        session.add_all([
+            Material(node_id=node.id, title=item.title, url=item.url,
+                     resource_type=item.resource_type, source="ai_search")
+            for item in materials
+        ])
+    await session.commit()
+    session.expire_all()
+    return as_out(await get_roadmap(session, roadmap_id))
+
+
 async def replace_ai_todos(session: AsyncSession, roadmap: Roadmap) -> None:
     try:
         generated = await ai_service.generate_todos(roadmap_dict(roadmap))
     except ai_service.AIServiceError as exc:
         raise provider_error(exc)
     node_ids = {node.id for node in roadmap.nodes}
-    if any(todo.node_id not in node_ids for todo in generated):
-        raise provider_error(ValueError("AI referenced unknown node"))
+    generated_node_ids = {todo.node_id for todo in generated}
+    if not generated or generated_node_ids != node_ids:
+        raise provider_error(ValueError("AI must generate at least one todo for every roadmap node"))
     await session.execute(delete(TodoItem).where(TodoItem.roadmap_id == roadmap.id, TodoItem.source == "ai"))
     session.add_all([TodoItem(roadmap_id=roadmap.id, node_id=item.node_id, title=item.title, order_index=index, source="ai") for index, item in enumerate(generated)])
 

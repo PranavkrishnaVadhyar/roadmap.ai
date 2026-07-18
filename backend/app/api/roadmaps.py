@@ -10,8 +10,8 @@ from app.core.config import get_settings
 from app.models import Edge, Material, Node, Roadmap, TodoItem
 from app.schemas import (CreateRoadmapRequest, EditRoadmapRequest, GeneratedEdge, GeneratedNode, GeneratedRoadmap,
                          MaterialOut, NodePatch, RoadmapListItem, RoadmapOut, ShareResponse)
-from app.services.roadmaps import (as_out, create_roadmap, get_roadmap, provider_error, replace_ai_todos,
-                                   roadmap_dict, validate_graph)
+from app.services.roadmaps import (as_out, attach_discovered_materials, create_roadmap, get_roadmap, provider_error,
+                                   regenerate_todos, replace_ai_todos, roadmap_dict, validate_graph)
 
 router = APIRouter(prefix="/roadmaps", tags=["roadmaps"])
 RoadmapId = Annotated[str, Path(min_length=1)]
@@ -21,7 +21,10 @@ RoadmapId = Annotated[str, Path(min_length=1)]
 async def create(payload: CreateRoadmapRequest, session: SessionDep) -> RoadmapOut:
     try:
         generated = await ai_service.generate_roadmap(payload.chat_history)
-        return await create_roadmap(session, generated)
+        roadmap = await create_roadmap(session, generated)
+        await attach_discovered_materials(session, roadmap.id)
+        await regenerate_todos(session, roadmap.id)
+        return as_out(await get_roadmap(session, roadmap.id))
     except (ai_service.AIServiceError, ValueError) as exc:
         await session.rollback()
         raise provider_error(exc)
@@ -105,7 +108,7 @@ async def regenerate_materials(roadmap_id: RoadmapId, node_id: str, session: Ses
     except ai_service.AIServiceError as exc:
         raise provider_error(exc)
     await session.execute(delete(Material).where(Material.node_id == node_id, Material.source == "ai_search"))
-    session.add_all([Material(node_id=node_id, title=item.title, url=str(item.url), resource_type=item.resource_type, source="ai_search") for item in materials])
+    session.add_all([Material(node_id=node_id, title=item.title, url=item.url, resource_type=item.resource_type, source="ai_search") for item in materials])
     await session.commit(); session.expire_all()
     refreshed = await get_roadmap(session, roadmap_id)
     refreshed_node = next(item for item in refreshed.nodes if item.id == node_id)
