@@ -1,0 +1,8 @@
+.chat-composer { display: flex; gap: 8px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.chat-composer input { min-width: 0; flex: 1; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius); color: var(--color-ink); font-size: 12px; }
+.chat-composer input:focus { border-color: var(--color-focus); outline: 0; }
+.chat-composer .primary-button { padding: 10px 12px; white-space: nowrap; }
+.api-error { margin-top: 8px; color: var(--color-red); font-size: 11px; line-height: 1.45; }
+.briefing-ready .primary-button:disabled::before { content: ''; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%; animation: button-spin .7s linear infinite; }
+.briefing-ready .primary-button:disabled { cursor: wait; opacity: .86; }
+@keyframes button-spin { to { transform: rotate(360deg); } }
